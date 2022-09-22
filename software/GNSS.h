@@ -68,7 +68,9 @@ public:
       ttagSource[i] = ttagNextTry - GNSS_CORRECTION_TIMEOUT;
     }
   }
-
+//Defined in CANBUS.h
+  void setEsfMeasSpeed();
+  void sendEsfMeasSpeed(float speed, uint8_t dir);
   bool detect() {
     //rx.enableDebugging();
 #ifdef WEBSOCKET_STREAM
@@ -96,6 +98,7 @@ public:
       }
       if (fwver.startsWith("HPS ")) {
 /* 8*/  GNSS_CHECK = rx.setVal(UBLOX_CFG_MSGOUT_UBX_ESF_STATUS_I2C, 1, VAL_LAYER_RAM);
+/* 9*/  GNSS_CHECK = rx.setVal(UBLOX_CFG_MSGOUT_UBX_NAV_ATT_I2C, 1, VAL_LAYER_RAM);        //added to be able to monitor heading in file.
       }
       online = ok = GNSS_CHECK_OK;
       GNSS_CHECK_EVAL("GNSS detect configuration");

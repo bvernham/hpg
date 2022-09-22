@@ -58,6 +58,9 @@
 #include <WiFiManager.h>
 #if defined(ARDUINO_UBLOX_NORA_W10) && defined(ESP_ARDUINO_VERSION) && (ESP_ARDUINO_VERSION < ESP_ARDUINO_VERSION_VAL(2,0,5))
   #error The WiFiManager triggers a race condition with ESP core > 2.3.0 -> please use Arduino_esp32 2.0.5 and 
+														  
+												
+																 
 #endif
 
 // Sparkfun libraries
@@ -73,6 +76,13 @@
 // Github Repository:  https://github.com/sparkfun/SparkFun_u-blox_SARA-R5_Arduino_Library
 #include <SparkFun_u-blox_SARA-R5_Arduino_Library.h>
 
+// esp32_can by collin80, January 17, 2022 commit
+// Github Repository: https://github.com/collin80/esp32_can
+
+#include <esp32_can.h>
+//The needed can_common library is found here: https://github.com/collin80/can_common
+
+
 // Header files of this project
 //-----------------------------------
 #include "HW.h"
@@ -83,7 +93,7 @@
 #include "GNSS.h"
 #include "LBAND.h"
 #include "LTE.h"
-//#include "CANBUS.h"
+#include "CANBUS.h"
 
 // ====================================================================================
 // MAIN setup / loop
@@ -106,6 +116,9 @@ void setup()
   Log.info("Version IDF %s Arduino_esp32 %d.%d.%d", esp_get_idf_version(),
         ESP_ARDUINO_VERSION_MAJOR,ESP_ARDUINO_VERSION_MINOR,ESP_ARDUINO_VERSION_PATCH);
 #endif
+			 
+											   
+																
   // SD card 
   UbxSd.init(); // handling SD card and files runs in a task
   Wlan.init(); // WLAN runs in a tasks, creates an additional LED task 
@@ -125,8 +138,16 @@ void setup()
     Log.warning("LBAND NEO-D9 not detected, check wiring");
   }
   
+					   
+														
+		
+						
+														  
+   
+
 #ifdef __CANBUS_H__
   Canbus.init();
+  Gnss.setEsfMeasSpeed();								
 #endif
 }
 
@@ -135,7 +156,10 @@ void loop()
   LBand.poll();
   Gnss.poll();
 #ifdef __CANBUS_H__
-  Canbus.poll();
+    if (Canbus.dataActive) Canbus.poll();
+	  
+											 
+				   
   delay(10);
 #else
   delay(50);
