@@ -245,9 +245,10 @@ class GNSS {
         memset(&message, 0, sizeof(message));
         message.timeTag = esfData.ttag;
         message.flags.bits.numMeas = 1;
-        message.data[0].data.bits.dataField = (esfData.speed & 0x7FFFFF);
+        message.id = 4;//(1<<3)
+        message.data[0].data.bits.dataField = (esfData.speed & 0xFFFFFF);
         if (esfData.reverse && message.data[0].data.bits.dataField > 0) { //only two's complement a positive #
-          message.data[0].data.bits.dataField = ((~message.data[0].data.bits.dataField + 1) & 0x7FFFFF);
+          message.data[0].data.bits.dataField = ((~message.data[0].data.bits.dataField + 1) & 0xFFFFFF);
         }
         message.data[0].data.bits.dataType = 11; // 11 = Speed
         ubxPacket packetEsfMeas = {UBX_CLASS_ESF, UBX_ESF_MEAS, 12, 0, 0, (uint8_t*)&message,
