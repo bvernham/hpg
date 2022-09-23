@@ -49,9 +49,10 @@ class CANBUS {
   public:
     elapsedMillis dataTimeOut = 0;//resets when CAN messages is recieved
     bool dataActive = false;//indicates data interval < timeout
-    float Veh_Speed = 0;//MPH
-    uint8_t Veh_Dir = 0;//
-    uint32_t Speed_Time = 0;//mills of when the speed CAN message is recieved.
+    struct {
+      uint32_t speed;
+      uint8_t PRNDL;
+    } canData;
     void init() {
       /*// start the CAN bus at 500kbps
         const int freq = 500E3; // use 250kbps in the Logic analyzer? unclear why
@@ -68,6 +69,8 @@ class CANBUS {
       Log.info("CAN Start Up!");
 #endif
       // void setCANPins(gpio_num_t rxPin, gpio_num_t txPin);
+      canData.speed = 0;
+      canData.PRNDL = 0;
       CAN0.setCANPins(rxPin, txPin);
       CAN0.begin(CAN0Baud);
       CAN0.watchFor(SpeedID, 0xFFF); //setup a special filter
@@ -79,10 +82,9 @@ class CANBUS {
     {
       if (dataTimeOut > dataTimeOutlimit)
       {
-        Veh_Speed = 0;//MPH
-        Veh_Dir = 0;//
-        Speed_Time = millis();//use time when the speed message was recieved.
-        Gnss.sendEsfMeasSpeed(Veh_Speed, Veh_Dir);
+        canData.speed = 0;
+        canData.PRNDL = 0;
+        Gnss.pushEsfMeas(millis(), 0, 0);
 #ifdef CAN_Active_Report
         Log.info("CAN Timeout!");
 #endif
@@ -97,7 +99,7 @@ class CANBUS {
         char space[] = " ";
         for (int i = 0; i < message->length; i ++) {
           char buff[6] = "";//temp buff for hex char
-          sprintf(buff,"0x%02X",message->data.byte[i]);
+          sprintf(buff, "0x%02X", message->data.byte[i]);
           strncat (txt, buff, 45);
           strncat (txt, space, 45);
         }
@@ -120,6 +122,7 @@ class CANBUS {
       }*/
 
     //protected:
+
     /*void onPushESFMeas(int packetSize) {
       if (!CAN.packetRtr() && (CAN.packetId() == CAN_SPEED_ID)) {
         uint32_t ttag = millis();
@@ -164,55 +167,22 @@ class CANBUS {
 };
 CANBUS Canbus;
 
-//Must add declarations to the GNSS class
-void GNSS::setEsfMeasSpeed() {
-  bool ok = rx.setVal8(UBLOX_CFG_SFODO_USE_SPEED, 1, VAL_LAYER_RAM); // Set F9 to use UBX Speed message input
-  if (ok && GPS_Config_Debug) Log.info("setVal8 UBLOX_CFG_SFODO_USE_SPEED == 1");
-}
-void GNSS::sendEsfMeasSpeed(float speed, uint8_t dir) {
-  //uint8_t tempDir = (0x03 & signals[sig1].results.uint);
-  //VAL_TABLE_ PRNDL 3 "Reverse" 2 "Drive" 1 "Neutral" 0 "Park" ;
-
-  /*int32_t speedout = 0;
-    if (dir == 0)
-    {
-    speedout = 0;
-    }
-    else
-    {
-    speedout = lroundf(speed);//speed is now mph2mmpsec
-    if (dir == 3)
-    {
-      speedout = -1 * speedout;
-    }
-    }*/
-  UBX_ESF_MEAS_data_t message;
-  memset(&message, 0, sizeof(message));
-  message.timeTag = Canbus.Speed_Time;//millis();
-  message.flags.bits.numMeas = 1;
-  message.id = 4;//(1<<3)
+/*int32_t speedout = 0;
   if (dir == 0)
   {
-    message.data[0].data.bits.dataField = 0;
+  speedout = 0;
   }
   else
   {
-    message.data[0].data.bits.dataField = (lroundf(speed) & 0xFFFFF);//speed is now mph2mmpsec
-    if (dir == 3)
-    {
-      message.data[0].data.bits.dataField = ~message.data[0].data.bits.dataField + 1;
-    }
+  speedout = lroundf(speed);//speed is now mph2mmpsec
+  if (dir == 3)
+  {
+    speedout = -1 * speedout;
   }
-  //message.data[0].data.bits.dataField = (speedout & 0x7FFFFF);
-  message.data[0].data.bits.dataType = 11; // 11 = Speed
-  ubxPacket packetEsfMeas = {UBX_CLASS_ESF, UBX_ESF_MEAS, 12, 0, 0, (uint8_t*)&message,
-                             0, 0, SFE_UBLOX_PACKET_VALIDITY_NOT_DEFINED, SFE_UBLOX_PACKET_VALIDITY_NOT_DEFINED
-                            };
-  rx.sendCommand(&packetEsfMeas, 0); // don't expect ACK
-#ifdef Esf_Meas_Speed_Debug
-  Log.info("Send Esf_Meas_Speed: Time: %u ID: %u Data Type: %u Data Field: 0x%06X" , message.timeTag, message.id, message.data[0].data.bits.dataType,
-           message.data[0].data.bits.dataField);
-#endif
+  }*/
+void GNSS::setEsfMeasSpeed() {
+  bool ok = rx.setVal8(UBLOX_CFG_SFODO_USE_SPEED, 1, VAL_LAYER_RAM); // Set F9 to use UBX Speed message input
+  if (ok && GPS_Config_Debug) Log.info("setVal8 UBLOX_CFG_SFODO_USE_SPEED == 1");
 }
 void Calc_Speed(CAN_FRAME *frame)//Calculate vehicle speed as mm/sec.
 {
@@ -222,15 +192,24 @@ void Calc_Speed(CAN_FRAME *frame)//Calculate vehicle speed as mm/sec.
   //  message->data
   /* BO_ 1001 ECMVehicleSpeed: 8 K20_ECM
     SG_ VehicleSpeed : 7|16@0+ (0.01,0) [0|0] "mph" NEO
-  */
-  Canbus.Speed_Time = millis();//use time when the speed message was recieved.
-  if (frame->id == SpeedID)
+  */  if (frame->id == SpeedID)
   {
+    uint32_t Speed_Time = millis();
+    bool dir = false;//if PRNDL==0 = true
 #ifdef CAN_Recv_Debug
     Canbus.printFrame(frame);
 #endif
-    Canbus.Veh_Speed = (mph2mmpsec * Speed_Scale) * ((frame->data.byte[0] << 8) + frame->data.byte[1]);
-    Gnss.sendEsfMeasSpeed(Canbus.Veh_Speed, Canbus.Veh_Dir);
+    //VAL_TABLE_ PRNDL 3 "Reverse" 2 "Drive" 1 "Neutral" 0 "Park" ;
+    if (Canbus.canData.PRNDL == 0)
+    {
+      Canbus.canData.speed = 0;
+    }
+    else
+    {
+      Canbus.canData.speed = lroundf(((mph2mmpsec * Speed_Scale) * ((frame->data.byte[0] << 8) + frame->data.byte[1])));
+      if (Canbus.canData.PRNDL == 3) dir = true;
+    }
+    if (Gnss.pushEsfMeas(Speed_Time, Canbus.canData.speed, dir)) Log.warning("pushEsfMeas not cleared between recieved speed messages");
     if (!Canbus.dataActive)
     {
 #ifdef CAN_Active_Report
@@ -261,7 +240,7 @@ void Calc_Direct(CAN_FRAME *frame)
 #ifdef CAN_Recv_Debug
     Canbus.printFrame(frame);
 #endif
-    Canbus.Veh_Dir = 0x07 & (frame->data.byte[0]);//first 3 bits
+    Canbus.canData.PRNDL = 0x07 & (frame->data.byte[0]);//first 3 bits
     if (!Canbus.dataActive)
     {
 #ifdef CAN_Active_Report
