@@ -209,7 +209,7 @@ void Calc_Speed(CAN_FRAME *frame)//Calculate vehicle speed as mm/sec.
       Canbus.canData.speed = lroundf(((mph2mmpsec * Speed_Scale) * ((frame->data.byte[0] << 8) + frame->data.byte[1])));
       if (Canbus.canData.PRNDL == 3) dir = true;
     }
-    if (Gnss.pushEsfMeas(Speed_Time, Canbus.canData.speed, dir)) Log.warning("pushEsfMeas not cleared between recieved speed messages");
+    if (Gnss.pushEsfMeas(Speed_Time, Canbus.canData.speed, dir)) Log.warning("esfData Buffer Overrun!");
     if (!Canbus.dataActive)
     {
 #ifdef CAN_Active_Report
