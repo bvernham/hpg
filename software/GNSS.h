@@ -23,6 +23,8 @@ const int GNSS_DETECT_RETRY       =  1000;    //!< Try to detect the received wi
 const int GNSS_CORRECTION_TIMEOUT = 12000;    //!< If the current correction source has not received data for this period we will switch to the next source that receives data.
 const int GNSS_I2C_ADR            = 0x42;     //!< ZED-F9x I2C address
 
+const uint8_t SPD_BUFF_SIZE      = 10;      //!< ESF-MEAS Circular Buffer Size
+
 // helper macro for source handling (selection in the receiver)
 #define GNSS_SPARTAN_USESOURCE(source)      ((source == LBAND) ? 1 : 0)
 #define GNSS_SPARTAN_USESOURCE_TXT(source)  ((source == LBAND) ? "1-PMP" : "0-SPARTAN")
@@ -71,7 +73,8 @@ class GNSS {
       for (int i = 0; i < NUM_SOURCE; i ++) {
         ttagSource[i] = ttagNextTry - GNSS_CORRECTION_TIMEOUT;
       }
-      esfData.ready = false;
+      //esfData.ready = false;
+      memset(&esfData, 0, sizeof(esfData));
     }
     void setEsfMeasSpeed();//prototype for function in CANBUS
     bool detect() {
@@ -243,11 +246,11 @@ class GNSS {
       if (esfData.ready) {
         UBX_ESF_MEAS_data_t message;
         memset(&message, 0, sizeof(message));
-        message.timeTag = esfData.ttag;
+        message.timeTag = esfData.ttag[esfData.tail];
         message.flags.bits.numMeas = 1;
         message.id = 4;//(1<<3)
-        message.data[0].data.bits.dataField = (esfData.speed & 0xFFFFFF);
-        if (esfData.reverse && message.data[0].data.bits.dataField > 0) { //only two's complement a positive #
+        message.data[0].data.bits.dataField = (esfData.speed[esfData.tail] & 0xFFFFFF);
+        if (esfData.reverse[esfData.tail] && message.data[0].data.bits.dataField > 0) { //only two's complement a positive #
           message.data[0].data.bits.dataField = ((~message.data[0].data.bits.dataField + 1) & 0xFFFFFF);
         }
         message.data[0].data.bits.dataType = 11; // 11 = Speed
@@ -255,17 +258,26 @@ class GNSS {
                                    0, 0, SFE_UBLOX_PACKET_VALIDITY_NOT_DEFINED, SFE_UBLOX_PACKET_VALIDITY_NOT_DEFINED
                                   };
         rx.sendCommand(&packetEsfMeas, 0); // don't expect ACK
-        esfData.ready = false;
+        esfData.tail++;//Increment
+        if (esfData.tail >= SPD_BUFF_SIZE)esfData.tail = 0; //Reset to beginning
+        if (esfData.tail == esfData.head)esfData.ready = false; 
+
+        //if  they are the same we caught up so no new data
+        //esfData.ready = false;
       }
     }
 
     bool pushEsfMeas(uint32_t ttag, uint32_t speed, bool reverse) {
-      bool old_DataReady = esfData.ready;//store old data esfData.ready and return.  If false we good.
-      esfData.ttag = ttag;
-      esfData.speed = speed;
-      esfData.reverse = reverse;
-      esfData.ready = true;
-      return old_DataReady;
+      bool over_run = false;
+      esfData.ttag[esfData.head] = ttag;
+      esfData.speed[esfData.head] = speed;
+      esfData.reverse[esfData.head] = reverse;
+      esfData.head++;//Increment
+      if (esfData.head >= SPD_BUFF_SIZE) esfData.head = 0; //Reset to beginning of array
+      if ((esfData.tail == esfData.head) && esfData.ready) over_run = true;
+      //if head == tail and still have data then we have we are overwriting unsent speed data
+      esfData.ready = true;//We have new data
+      return over_run;
     }
 
   protected:
@@ -277,10 +289,12 @@ class GNSS {
     xQueueHandle queue;
     SFE_UBLOX_GNSS rx;
     struct {
-      uint32_t ttag;
-      uint32_t speed;
-      bool reverse;
+      uint32_t ttag[SPD_BUFF_SIZE];
+      uint32_t speed[SPD_BUFF_SIZE];
+      bool reverse[SPD_BUFF_SIZE];
       bool ready;
+      uint8_t head;//new buffer entries are placed
+      uint8_t tail;//old buffer entries are removed
     } esfData;
 };
 
