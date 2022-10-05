@@ -104,7 +104,33 @@ class GNSS {
         }
         if (fwver.startsWith("HPS ")) {
           /* 8*/  GNSS_CHECK = rx.setVal(UBLOX_CFG_MSGOUT_UBX_ESF_STATUS_I2C, 1, VAL_LAYER_RAM);
-          /* 9*/  GNSS_CHECK = rx.setVal(UBLOX_CFG_MSGOUT_UBX_NAV_ATT_I2C, 1, VAL_LAYER_RAM);        //added to be able to monitor heading in file.
+          /* 9*/  GNSS_CHECK = rx.setVal(UBLOX_CFG_MSGOUT_UBX_NAV_ATT_I2C, 1, VAL_LAYER_RAM);    // 52 bytes added to be able to monitor heading in file.
+          uint8_t dynModel = DYN_MODEL_UNKNOWN;
+          if (dynModel != DYN_MODEL_UNKNOWN) {
+            GNSS_CHECK = rx.setVal(UBLOX_CFG_NAVSPG_DYNMODEL,  dynModel, VAL_LAYER_RAM);
+            if (dynModel == DYN_MODEL_MOWER) {
+              Log.info("GNSS dynModel MOWER");
+              /* using https://github.com/mazgch/wtBox as hall sensor to WT converter
+
+                 example for BOSCH Indigo S+ 500
+                 - wheel diameter:       ~16.5 cm
+                 - wheel circumference:  ~53.0 cm
+                 - ticks per revolution:  1540 ticks
+              */
+              const int32_t odoFactor = (uint32_t)( ( 0.53 /* wheel circumference m */
+                                                      * 1e6 /* scale value to unit needed */
+                                                      / 1540 /* ticks per revolution */
+                                                      / 2 /* left and right wheel */) );
+              GNSS_CHECK = rx.setVal32(UBLOX_CFG_SFODO_FACTOR, odoFactor, VAL_LAYER_RAM);
+              GNSS_CHECK = rx.setVal(UBLOX_CFG_SFODO_COMBINE_TICKS,    1, VAL_LAYER_RAM);
+              GNSS_CHECK = rx.setVal(UBLOX_CFG_SFODO_DIS_AUTODIRPINPOL, 1, VAL_LAYER_RAM);
+            } else if (dynModel == DYN_MODEL_ESCOOTER) {
+              // do whateever you need to do
+              Log.info("GNSS dynModel ESCOOTER");
+            } else {
+              Log.info("GNSS dynModel %d", dynModel);
+            }
+          }
         }
         online = ok = GNSS_CHECK_OK;
         GNSS_CHECK_EVAL("GNSS detect configuration");
@@ -279,6 +305,7 @@ class GNSS {
       esfData.ready = true;//We have new data
       return over_run;
     }
+
 
   protected:
 
