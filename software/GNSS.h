@@ -76,7 +76,6 @@ class GNSS {
       //esfData.ready = false;
       memset(&esfData, 0, sizeof(esfData));
     }
-    void setEsfMeasSpeed();//prototype for function in CANBUS
     bool detect() {
       //rx.enableDebugging();
 #ifdef WEBSOCKET_STREAM
@@ -104,8 +103,8 @@ class GNSS {
         }
         if (fwver.startsWith("HPS ")) {
           /* 8*/  GNSS_CHECK = rx.setVal(UBLOX_CFG_MSGOUT_UBX_ESF_STATUS_I2C, 1, VAL_LAYER_RAM);
-          /* 9*/  GNSS_CHECK = rx.setVal(UBLOX_CFG_MSGOUT_UBX_NAV_ATT_I2C, 1, VAL_LAYER_RAM);    // 52 bytes added to be able to monitor heading in file.
-          uint8_t dynModel = DYN_MODEL_UNKNOWN;
+          /* 9*/  GNSS_CHECK = rx.setVal(UBLOX_CFG_MSGOUT_UBX_NAV_ATT_I2C, 1, VAL_LAYER_RAM);    // 52 bytes added to be able to monitor heading in file.      
+          uint8_t dynModel = DYN_MODEL_AUTOMOTIVE;//DYN_MODEL_UNKNOWN;
           if (dynModel != DYN_MODEL_UNKNOWN) {
             GNSS_CHECK = rx.setVal(UBLOX_CFG_NAVSPG_DYNMODEL,  dynModel, VAL_LAYER_RAM);
             if (dynModel == DYN_MODEL_MOWER) {
@@ -128,6 +127,7 @@ class GNSS {
               // do whateever you need to do
               Log.info("GNSS dynModel ESCOOTER");
             } else {
+              GNSS_CHECK = rx.setVal(UBLOX_CFG_SFODO_USE_SPEED, 1, VAL_LAYER_RAM); // Set F9 to use UBX Speed message input
               Log.info("GNSS dynModel %d", dynModel);
             }
           }
