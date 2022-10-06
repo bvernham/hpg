@@ -167,23 +167,6 @@ class CANBUS {
 };
 CANBUS Canbus;
 
-/*int32_t speedout = 0;
-  if (dir == 0)
-  {
-  speedout = 0;
-  }
-  else
-  {
-  speedout = lroundf(speed);//speed is now mph2mmpsec
-  if (dir == 3)
-  {
-    speedout = -1 * speedout;
-  }
-  }*/
-void GNSS::setEsfMeasSpeed() {
-  bool ok = rx.setVal8(UBLOX_CFG_SFODO_USE_SPEED, 1, VAL_LAYER_RAM); // Set F9 to use UBX Speed message input
-  if (ok && GPS_Config_Debug) Log.info("setVal8 UBLOX_CFG_SFODO_USE_SPEED == 1");
-}
 void Calc_Speed(CAN_FRAME *frame)//Calculate vehicle speed as mm/sec.
 {
   //  message->id
