@@ -103,7 +103,7 @@ class GNSS {
         }
         if (fwver.startsWith("HPS ")) {
           /* 8*/  GNSS_CHECK = rx.setVal(UBLOX_CFG_MSGOUT_UBX_ESF_STATUS_I2C, 1, VAL_LAYER_RAM);
-          /* 9*/  GNSS_CHECK = rx.setVal(UBLOX_CFG_MSGOUT_UBX_NAV_ATT_I2C, 1, VAL_LAYER_RAM);    // 52 bytes added to be able to monitor heading in file.      
+          /* 9*/  GNSS_CHECK = rx.setVal(UBLOX_CFG_MSGOUT_UBX_NAV_ATT_I2C, 1, VAL_LAYER_RAM);    // 52 bytes added to be able to monitor heading in file.
           uint8_t dynModel = DYN_MODEL_AUTOMOTIVE;//DYN_MODEL_UNKNOWN;
           if (dynModel != DYN_MODEL_UNKNOWN) {
             GNSS_CHECK = rx.setVal(UBLOX_CFG_NAVSPG_DYNMODEL,  dynModel, VAL_LAYER_RAM);
@@ -127,6 +127,7 @@ class GNSS {
               // do whateever you need to do
               Log.info("GNSS dynModel ESCOOTER");
             } else {
+              GNSS_CHECK = rx.setVal(UBLOX_CFG_SFODO_DIS_AUTOSW, 0, VAL_LAYER_RAM);
               GNSS_CHECK = rx.setVal(UBLOX_CFG_SFODO_USE_SPEED, 1, VAL_LAYER_RAM); // Set F9 to use UBX Speed message input
               Log.info("GNSS dynModel %d", dynModel);
             }
@@ -286,7 +287,7 @@ class GNSS {
         rx.sendCommand(&packetEsfMeas, 0); // don't expect ACK
         esfData.tail++;//Increment
         if (esfData.tail >= SPD_BUFF_SIZE)esfData.tail = 0; //Reset to beginning
-        if (esfData.tail == esfData.head)esfData.ready = false; 
+        if (esfData.tail == esfData.head)esfData.ready = false;
 
         //if  they are the same we caught up so no new data
         //esfData.ready = false;
