@@ -44,6 +44,8 @@
 
 extern class CANBUS Canbus;
 
+//#define Use_CBuf //define if circular buffer is to be used//if not defined will send ESF_MEAS from speed ISR
+#define SPD_BUFF_SIZE 10//!< ESF-MEAS Circular Buffer Size
 #define rxPin GPIO_NUM_4
 #define txPin GPIO_NUM_5
 #define dataTimeOutlimit 2000//500//zero out CAN variables
@@ -61,10 +63,22 @@ class CANBUS {
     elapsedMillis dataTimeOut = 0;//resets when CAN messages is recieved
     bool dataActive = false;//indicates data interval < timeout
     void init() {
-      xTaskCreatePinnedToCore(task, "Can",  1024,  this, 3,  NULL, 1);
+      Serial2.begin(38400, SERIAL_8N1, -1/*no input*/, CAN_ESF_MEAS_TXO);
+      CAN0.setCANPins(rxPin, txPin);
+      CAN0.begin(CAN0Baud);
+      CAN0.watchFor(SpeedID, 0xFFF); //setup a special filter
+      CAN0.watchFor(DirID, 0xFFF); //setup a special filter
+      CAN0.setCallback(0, Calc_Speed); //callback on that Vehicle Speed filter*/
+      CAN0.setCallback(1, Calc_Direct); //callback on that Vehicle Direction filter*/
+#ifdef Use_CBuf
+      memset(&Esf_CBuf, 0, sizeof(Esf_CBuf)); //Clear circular buffer if used
+#endif
     }
     void poll()//check for data time out
     {
+#ifdef Use_CBuf
+      sendEsfMeas();
+#endif
       if (Canbus.dataTimeOut > dataTimeOutlimit)
       {
         Canbus.PRNDL = 0;
@@ -76,10 +90,39 @@ class CANBUS {
       }
     }
   protected:
+#ifdef Use_CBuf
     typedef struct {
-      uint32_t ttag;
-      uint32_t data;
-    } ESF_QUEUE_STRUCT;
+      uint32_t ttag[SPD_BUFF_SIZE];
+      uint32_t data[SPD_BUFF_SIZE];//data is already encoded and ready to be sent
+      bool ready;
+      uint8_t head;//new buffer entries are placed
+      uint8_t tail;//old buffer entries are removed
+    } ESF_CBUF_STRUCT;
+    ESF_CBUF_STRUCT Esf_CBuf;
+    bool pushEsfMeas(uint32_t ttag, uint32_t data) {
+      bool over_run = false;
+      Esf_CBuf.ttag[Esf_CBuf.head] = ttag;
+      Esf_CBuf.data[Esf_CBuf.head] = data;
+      Esf_CBuf.head++;//Increment
+      if (Esf_CBuf.head >= SPD_BUFF_SIZE) Esf_CBuf.head = 0; //Reset to beginning of array
+      if ((Esf_CBuf.tail == Esf_CBuf.head) && Esf_CBuf.ready) over_run = true;
+      //if head == tail and still have data then we have we are overwriting unsent speed data
+      Esf_CBuf.ready = true;//We have new data
+      return over_run;
+    }
+    void sendEsfMeas(void) {
+      if (Esf_CBuf.ready) {
+        if (!esfMeas(Esf_CBuf.ttag[Esf_CBuf.tail], &Esf_CBuf.data[Esf_CBuf.tail], 1)) {
+          Log.warning("Esf_CBuf failed to send!");
+        }
+        Esf_CBuf.tail++;//Increment
+        if (Esf_CBuf.tail >= SPD_BUFF_SIZE)Esf_CBuf.tail = 0; //Reset to beginning
+        if (Esf_CBuf.tail == Esf_CBuf.head)Esf_CBuf.ready = false;
+        //if  they are the same we caught up so no new data
+        //Esf_CBuf.ready = false;
+      }
+    }
+#endif
     uint8_t PRNDL = 0; //VAL_TABLE_ PRNDL 3 "Reverse" 2 "Drive" 1 "Neutral" 0 "Park" ;
     void printFrame(CAN_FRAME *message)
     {
@@ -99,25 +142,6 @@ class CANBUS {
       }
       Log.info("CAN read 0x%0*X %d %s", message->extended ? 8 : 3, message->id, message->length, txt);
       //Log.info("CAN read 0x%0*X %d \"%s\"", CAN.packetExtended() ? 8 : 3, CAN.packetId(), packetSize, txt);
-
-    }
-    static void task(void * pvParameters) {
-      Canbus.queue  = xQueueCreate(2, sizeof(ESF_QUEUE_STRUCT));
-      Serial2.begin(38400, SERIAL_8N1, -1/*no input*/, CAN_ESF_MEAS_TXO);
-      CAN0.setCANPins(rxPin, txPin);
-      CAN0.begin(CAN0Baud);
-      CAN0.watchFor(SpeedID, 0xFFF); //setup a special filter
-      CAN0.watchFor(DirID, 0xFFF); //setup a special filter
-      CAN0.setCallback(0, Calc_Speed); //callback on that Vehicle Speed filter*/
-      CAN0.setCallback(1, Calc_Direct); //callback on that Vehicle Direction filter*/
-      while (1)
-      {
-        ESF_QUEUE_STRUCT meas;
-        if ( xQueueReceive(Canbus.queue, &meas, portMAX_DELAY) == pdPASS ) {
-          Canbus.esfMeas(meas.ttag, &meas.data, 1);
-          Log.info("CAN rx %d %08X", meas.ttag, meas.data);
-        }
-      }
     }
     // ATTENTION the callback is executed from an ISR only do essential things
     /*  static void onPushESFMeasFromISR(int packetSize) {
@@ -151,9 +175,9 @@ class CANBUS {
       if (frame->id == SpeedID)
       {
         uint32_t ms = millis();
-#ifdef CAN_Recv_Debug
-        Canbus.printFrame(frame);
-#endif
+        //#ifdef CAN_Recv_Debug
+        //        Canbus.printFrame(frame);
+        //#endif
         //VAL_TABLE_ PRNDL 3 "Reverse" 2 "Drive" 1 "Neutral" 0 "Park" ;
         uint32_t speed = 0;
         bool reverse = false;
@@ -167,21 +191,21 @@ class CANBUS {
           if (Canbus.PRNDL == 3) reverse = true;
           speed = reverse ? -speed : speed;
         }
-        ESF_QUEUE_STRUCT meas = { ms, (11/*SPEED*/ << 24)  | (speed & 0xFFFFFF) };
-        Canbus.esfMeas(meas.ttag, &meas.data, 1);
-        //BaseType_t xHigherPriorityTaskWoken;
-        //if (xQueueSendToBackFromISR(Canbus.queue, &meas, &xHigherPriorityTaskWoken) == pdPASS ) {
-        //  if (xHigherPriorityTaskWoken) {
-        //    portYIELD_FROM_ISR();
-        //  }
-        //}
+        speed = (((11/*SPEED*/ << 24)  | (speed & 0xFFFFFF)));//finish ESF_Meas encoding in speed
+#ifdef Use_CBuf //push to cbuf
+        if (Canbus.pushEsfMeas(ms, speed)) Log.warning("esfData Buffer Overrun!");
+#else//send esfMeas directly in ISR         
+        if (!Canbus.esfMeas(ms, &speed, 1)) {
+          Log.warning("Esf_CBuf failed to send!");
+        }
+#endif
         if (!Canbus.dataActive)
         {
 #ifdef CAN_Active_Report
           Log.info("CAN Active!");
 #endif
-          Canbus.dataActive = true;
-        }
+            Canbus.dataActive = true;
+          }
         Canbus.dataTimeOut -= Canbus.dataTimeOut;//reset watchdog timer
       }
 #ifdef CAN_Recv_Debug
@@ -202,9 +226,9 @@ class CANBUS {
       //VAL_TABLE_ PRNDL 3 "Reverse" 2 "Drive" 1 "Neutral" 0 "Park" ;
       if (frame->id == DirID)
       {
-#ifdef CAN_Recv_Debug
-        Canbus.printFrame(frame);
-#endif
+        //#ifdef CAN_Recv_Debug
+        //        Canbus.printFrame(frame);
+        //#endif
         Canbus.PRNDL = 0x07 & (frame->data.byte[0]);//first 3 bits
         if (!Canbus.dataActive)
         {
@@ -261,7 +285,7 @@ class CANBUS {
       m[i++] = ckb;
       return Serial2.write(m, i);
     }
-    xQueueHandle queue;
+
 };
 
 CANBUS Canbus;
